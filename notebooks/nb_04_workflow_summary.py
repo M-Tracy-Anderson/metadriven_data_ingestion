@@ -37,8 +37,23 @@ results_df = spark.sql(f"""
 rows = results_df.collect()
 
 if not rows:
-    print(f"No enabled rows found for process_group='{PROCESS_GROUP}'")
-    dbutils.notebook.exit("SUMMARY | No rows found")
+    total_in_group = spark.sql(f"""
+        SELECT COUNT(*) AS cnt FROM {CONFIG_TABLE}
+        WHERE process_group = '{PROCESS_GROUP}'
+    """).collect()[0]['cnt']
+
+    if total_in_group == 0:
+        raise Exception(
+            f"process_group '{PROCESS_GROUP}' not found in table_migration_config. "
+            f"Check the workflow job parameter — this may be a typo."
+        )
+
+    print(f"process_group '{PROCESS_GROUP}' has {total_in_group} rows but none enabled.")
+    print("Nothing to summarize — this is expected if the workflow was skipped.")
+    dbutils.notebook.exit(
+        f"SUMMARY_SKIPPED | {PROCESS_GROUP} | {total_in_group} total | "
+        f"0 enabled — nothing to summarize"
+    )
 
 # COMMAND ----------
 
@@ -113,3 +128,4 @@ if total_failures > 0:
 
 print(f"\nAll tables passed — {exit_msg}")
 dbutils.notebook.exit(exit_msg)
+

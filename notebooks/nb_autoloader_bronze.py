@@ -129,7 +129,7 @@ try:
     if len(data_files) > 5:
         print(f"  ... and {len(data_files)-5} more")
     if not data_files:
-        print("  ⚠️  No data files found — check the volume path and that files have been uploaded")
+        print("   No data files found — check the volume path and that files have been uploaded")
 except Exception as e:
     raise Exception(f"Cannot access source path {src_path}: {str(e)}")
 

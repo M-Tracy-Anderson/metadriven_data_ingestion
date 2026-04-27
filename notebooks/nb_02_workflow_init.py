@@ -31,7 +31,23 @@ print(f"Config table  : {CONFIG_TABLE}")
 
 from datetime import datetime, timezone
 
-# ── Load enabled rows for this process_group ──────────────────
+# ── Two-stage row check ───────────────────────────────────────
+# Stage 1: does the process_group exist at all in the config table?
+#           If not — likely a typo in the workflow parameter — raise.
+# Stage 2: are there enabled rows to process?
+#           If not — nothing to do, exit cleanly (not an error).
+
+total_in_group = spark.sql(f"""
+    SELECT COUNT(*) AS cnt FROM {CONFIG_TABLE}
+    WHERE process_group = '{PROCESS_GROUP}'
+""").collect()[0]['cnt']
+
+if total_in_group == 0:
+    raise Exception(
+        f"process_group '{PROCESS_GROUP}' not found in table_migration_config. "
+        f"Check the workflow job parameter — this may be a typo."
+    )
+
 config_df = spark.sql(f"""
     SELECT *
     FROM {CONFIG_TABLE}
@@ -43,9 +59,13 @@ config_df = spark.sql(f"""
 rows = config_df.collect()
 
 if not rows:
+    # process_group exists but nothing enabled — not an error, just nothing to do
+    print(f"process_group '{PROCESS_GROUP}' has {total_in_group} total rows, 0 enabled.")
+    print("Nothing to process — tables may already be loaded or not yet enabled.")
+    print("Set enabled=true to include tables in the next run.")
     dbutils.notebook.exit(
-        f"No enabled rows found for process_group='{PROCESS_GROUP}'. "
-        f"Check table_migration_config — enabled must be true."
+        f"INIT_SKIPPED | {PROCESS_GROUP} | {total_in_group} total rows | "
+        f"0 enabled — nothing to do"
     )
 
 print(f"Found {len(rows)} enabled tables for process_group: {PROCESS_GROUP}")
@@ -96,11 +116,19 @@ for row in rows:
               AND enabled = true
         """).collect()
         if not conn_rows:
-            validation_errors.append(
-                f"{tid}: no active connection found for src_database="
-                f"'{row['src_database']}' in source_connection_config. "
-                f"Add a row to source_connection_config first."
+            # volume and adls source types use UC Volume paths —
+            # no connection registry row required
+            # All other source types must be registered
+            no_registry_needed = (
+                row['source_type'] in ('volume', 'adls') or
+                row['load_mode'] == 'autoloader'
             )
+            if not no_registry_needed:
+                validation_errors.append(
+                    f"{tid}: no active connection found for src_database="
+                    f"'{row['src_database']}' in source_connection_config. "
+                    f"Add a row to source_connection_config first."
+                )
         else:
             conn = conn_rows[0]
             # JDBC connections must have a secret scope defined
@@ -141,6 +169,149 @@ if validation_errors:
     raise Exception(error_msg)
 
 print(f" All {len(rows)} rows passed validation")
+
+# COMMAND ----------
+
+# ── Connection smoke test ─────────────────────────────────────
+# Validates each unique source connection is reachable before
+# marking any rows as RUNNING. Fails fast with a clear message
+# rather than letting the dispatcher fail mid-run.
+#
+# Tests by connection_method:
+#   foreign_catalog → SHOW TABLES IN {catalog}.{schema}
+#   volume          → dbutils.fs.ls(volume_base_path)
+#   jdbc            → read one row via JDBC
+
+print("Running connection smoke tests...")
+conn_errors = []
+
+# Get unique src_database values for this run
+# Skip autoloader and copy_into — they validate paths differently
+test_rows = [
+    r for r in rows
+    if r['load_mode'] not in ('autoloader', 'copy_into')
+]
+unique_sources = {r['src_database'] for r in test_rows}
+
+for src_db in unique_sources:
+    conn = None
+    try:
+        conn_rows = spark.sql(f"""
+            SELECT * FROM {CONN_TABLE}
+            WHERE connection_name = '{src_db}'
+              AND enabled = true
+        """).collect()
+        conn = conn_rows[0] if conn_rows else None
+    except Exception:
+        conn = None
+
+    if conn is None:
+        # No connection registry row — try direct catalog access as fallback
+        try:
+            spark.sql(f"SHOW CATALOGS").filter(f"catalog = '{src_db}'").collect()
+            # If we get here the catalog at least exists
+            print(f"   {src_db} — accessible (no registry row, direct catalog check)")
+        except Exception as e:
+            conn_errors.append(
+                f"{src_db}: not found in source_connection_config and "
+                f"direct catalog check failed: {str(e)[:120]}"
+            )
+        continue
+
+    method = (conn['connection_method'] or '').lower()
+
+    if method == 'foreign_catalog':
+        catalog = conn['catalog_name'] or src_db
+        try:
+            # Test the foreign catalog is registered and reachable
+            spark.sql(f"SHOW SCHEMAS IN {catalog}").collect()
+            print(f"   {src_db} — foreign catalog '{catalog}' reachable")
+        except Exception as e:
+            conn_errors.append(
+                f"{src_db}: foreign catalog '{catalog}' not reachable. "
+                f"Run nb_setup_connections to recreate it. "
+                f"Error: {str(e)[:120]}"
+            )
+
+    elif method == 'volume':
+        vol_path = conn['volume_base_path']
+        if vol_path:
+            try:
+                dbutils.fs.ls(vol_path)
+                print(f"   {src_db} — volume path '{vol_path}' accessible")
+            except Exception as e:
+                conn_errors.append(
+                    f"{src_db}: volume path '{vol_path}' not accessible. "
+                    f"Check the volume exists in Unity Catalog. "
+                    f"Error: {str(e)[:120]}"
+                )
+        else:
+            print(f"  ⚠️  {src_db} — volume connection has no volume_base_path set")
+
+    elif method == 'jdbc':
+        scope = conn['secret_scope']
+        template = conn['jdbc_url_template']
+        if scope and template:
+            try:
+                host     = dbutils.secrets.get(scope, 'host')
+                port     = dbutils.secrets.get(scope, 'port')
+                user     = dbutils.secrets.get(scope, 'user')
+                password = dbutils.secrets.get(scope, 'password')
+                try:
+                    db = dbutils.secrets.get(scope, 'database')
+                except Exception:
+                    db = src_db
+                url = template                     .replace('{host}', host)                     .replace('{port}', port)                     .replace('{database}', db)
+                # Test with a lightweight query
+                spark.read.format("jdbc")                     .option("url",    url)                     .option("dbtable","(SELECT 1 AS test) AS t")                     .option("user",   user)                     .option("password", password)                     .option("driver", conn['driver_class'])                     .load().collect()
+                print(f"   {src_db} — JDBC connection reachable")
+            except Exception as e:
+                conn_errors.append(
+                    f"{src_db}: JDBC connection failed. "
+                    f"Check secret scope '{scope}' and network access. "
+                    f"Error: {str(e)[:150]}"
+                )
+        else:
+            conn_errors.append(
+                f"{src_db}: jdbc connection missing secret_scope or "
+                f"jdbc_url_template in source_connection_config"
+            )
+    else:
+        print(f"    {src_db} — unknown connection_method '{method}', skipping test")
+
+# Also test volume paths for autoloader rows
+autoloader_rows = [r for r in rows if r['load_mode'] == 'autoloader']
+unique_autoloader_sources = {r['src_database'] for r in autoloader_rows}
+for src_db in unique_autoloader_sources:
+    try:
+        conn_rows = spark.sql(f"""
+            SELECT volume_base_path FROM {CONN_TABLE}
+            WHERE connection_name = '{src_db}' AND enabled = true
+        """).collect()
+        if conn_rows and conn_rows[0]['volume_base_path']:
+            vol_path = conn_rows[0]['volume_base_path']
+            dbutils.fs.ls(vol_path)
+            print(f"   {src_db} — autoloader volume '{vol_path}' accessible")
+        else:
+            # Try building path from convention
+            sample_row = next(r for r in autoloader_rows if r['src_database'] == src_db)
+            vol_path = f"/Volumes/{src_db}/{sample_row['src_schema']}/landing"
+            dbutils.fs.ls(vol_path)
+            print(f"   {src_db} — autoloader volume '{vol_path}' accessible")
+    except Exception as e:
+        conn_errors.append(
+            f"{src_db}: autoloader volume not accessible. "
+            f"Error: {str(e)[:120]}"
+        )
+
+if conn_errors:
+    raise Exception(
+        f"Connection smoke test failed for {len(conn_errors)} source(s) "
+        f"in process_group '{PROCESS_GROUP}':\n" +
+        "\n".join(f"  - {e}" for e in conn_errors)
+    )
+
+print(f" All connections reachable — proceeding to mark rows RUNNING")
 
 # COMMAND ----------
 

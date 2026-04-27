@@ -118,23 +118,60 @@ def ensure_schema(catalog, schema):
 #
 # Engineers register the foreign catalog in Unity Catalog with
 # their chosen name and store that exact name in src_database.
+# ── Connection registry lookup ────────────────────────────────
+# Reads source_connection_config for the given connection_name.
+# Caches results within the session to avoid repeated queries.
+# Returns None if table does not exist or no row found —
+# dispatcher falls back to legacy direct catalog behavior.
+_conn_cache = {}
+def get_connection(connection_name):
+    if connection_name in _conn_cache:
+        return _conn_cache[connection_name]
+    try:
+        rows = spark.sql(f"""
+            SELECT * FROM {CONN_TABLE}
+            WHERE connection_name = '{connection_name}'
+              AND enabled = true
+        """).collect()
+        result = rows[0] if rows else None
+    except Exception as e:
+        # Table may not exist in older environments — degrade gracefully
+        print(f"  [CONN] source_connection_config not available: {str(e)[:80]}")
+        result = None
+    _conn_cache[connection_name] = result
+    return result
+
+# ── Source reference builder ──────────────────────────────────
+# Looks up connection_method from source_connection_config.
+# foreign_catalog → returns SQL reference string for spark.sql()
+# jdbc / volume   → returns None (handled by read_jdbc / load_copy_into)
+# Falls back to using src_database directly as catalog name if
+# no connection config found — backward compatible with existing rows.
 def source_ref(row):
-    src_type = (row['source_type'] or 'snowflake').lower()
-    catalog  = (row['src_database'] or '').lower()
-    schema   = row['src_schema']
-    table    = row['src_table']
+    src_database = row['src_database']
+    schema       = row['src_schema']
+    table        = row['src_table']
+    src_type     = (row['source_type'] or '').lower()
 
-    if src_type == 'delta':
-        # Already a UC reference — use directly
-        return f"{catalog}.{schema}.{table}"
+    conn = get_connection(src_database)
 
-    if src_type == 'oracle':
-        # Oracle not supported by UC lakehouse federation — use JDBC
-        return None
+    if conn:
+        method = (conn['connection_method'] or '').lower()
+        if method == 'foreign_catalog':
+            catalog = conn['catalog_name'] or src_database
+            return f"{catalog}.{schema}.{table}"
+        elif method in ('jdbc', 'volume'):
+            return None  # handled by read_jdbc or load_copy_into
+        else:
+            return f"{src_database}.{schema}.{table}"
 
-    # All other source types — src_database IS the catalog name
-    # Use exactly as stored — no prefix added
-    return f"{catalog}.{schema}.{table}"
+    # Fallback — no connection config found, use src_database directly
+    # Covers: all existing foreign catalog rows (samples, pg_neon etc.)
+    if src_type in ('oracle', 'teradata', 'sap'):
+        return None  # JDBC only
+    if src_type in ('adls', 'volume'):
+        return None  # UC Volume or ADLS — handled by load functions
+    return f"{src_database}.{schema}.{table}"
 
 # ── JDBC read — driven by source_connection_config ───────────
 # Builds connection from connection registry.
@@ -224,10 +261,21 @@ def read_jdbc(row, where_clause=''):
 
 # ── Read source into DataFrame ────────────────────────────────
 def read_source(row, where_clause=''):
-    src_type = (row['source_type'] or 'snowflake').lower()
-    ref      = source_ref(row)
+    src_type  = (row['source_type'] or 'snowflake').lower()
+    load_mode = (row['load_mode']   or '').lower()
 
-    if ref is None or src_type == 'oracle':
+    # Autoloader and volume copy_into never use read_source
+    # They build their own paths — should never reach here
+    if load_mode == 'autoloader' or src_type in ('adls', 'volume'):
+        raise Exception(
+            f"read_source() should not be called for "
+            f"load_mode='{load_mode}' / source_type='{src_type}'. "
+            f"These are handled by load_autoloader() and load_copy_into()."
+        )
+
+    ref = source_ref(row)
+
+    if ref is None or src_type in ('oracle', 'teradata', 'sap'):
         # JDBC path
         return read_jdbc(row, where_clause)
 
@@ -414,7 +462,7 @@ def load_copy_into(row):
     # ── Route by source_type ──────────────────────────────────
     # source_type = adls   → UC Volume path (POC / external orchestrator)
     # source_type = snowflake → ADLS blob via Snowflake JDBC export
-    if source_type == 'adls':
+    if source_type in ('adls', 'volume'):
         # Volume path: /Volumes/{src_database}/{src_schema}/landing/{src_table}/
         src_path = (
             f"/Volumes/{row['src_database']}/{row['src_schema']}/"
@@ -602,9 +650,24 @@ if not all_rows:
             WHERE table_id IN ('{ids}')
         """)
     else:
+        # process_group exists but nothing to run — check if it exists at all
+        total_in_group = spark.sql(f"""
+            SELECT COUNT(*) AS cnt FROM {CONFIG_TABLE}
+            WHERE process_group = '{PROCESS_GROUP}'
+        """).collect()[0]['cnt']
+
+        if total_in_group == 0:
+            raise Exception(
+                f"process_group '{PROCESS_GROUP}' not found in table_migration_config. "
+                f"Check the workflow job parameter — this may be a typo."
+            )
+
+        print(f"process_group '{PROCESS_GROUP}' has {total_in_group} rows but none "
+              f"are RUNNING or PENDING. Nothing to dispatch.")
+        print("This is expected if init was skipped or all tables already ran.")
         dbutils.notebook.exit(
-            f"No RUNNING or PENDING enabled rows for process_group='{PROCESS_GROUP}'. "
-            f"Check that enabled=true and last_run_status is PENDING or RUNNING."
+            f"DISPATCHER_SKIPPED | {PROCESS_GROUP} | {total_in_group} total rows | "
+            f"0 RUNNING or PENDING — nothing to dispatch"
         )
 
 # ── Group by priority tier ────────────────────────────────────
@@ -664,3 +727,7 @@ if total_failed > 0:
             print(f"  {r['table_id']}: {r['error']}")
 
 dbutils.notebook.exit(f"DISPATCHER | Passed: {total_passed} | Failed: {total_failed} | {PROCESS_GROUP}")
+if not rows:
+    raise Exception(
+        f"No enabled rows found for process_group='{PROCESS_GROUP}'. ..."
+    )
