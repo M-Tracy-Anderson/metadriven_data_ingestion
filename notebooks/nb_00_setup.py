@@ -51,10 +51,10 @@ print(f"Conn table     : {CONN_TABLE}")
 
 # ── Create schemas ────────────────────────────────────────────
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {ADMIN_CATALOG}.{CONFIG_SCHEMA}")
-print(f" Schema {ADMIN_CATALOG}.{CONFIG_SCHEMA} ready")
+print(f"✅ Schema {ADMIN_CATALOG}.{CONFIG_SCHEMA} ready")
 
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {TARGET_CATALOG}.{TARGET_SCHEMA}")
-print(f" Schema {TARGET_CATALOG}.{TARGET_SCHEMA} ready")
+print(f"✅ Schema {TARGET_CATALOG}.{TARGET_SCHEMA} ready")
 
 # COMMAND ----------
 
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS {CONN_TABLE} (
 USING DELTA
 COMMENT 'Central registry of source system connections for the migration framework'
 """)
-print(f" source_connection_config created")
+print(f"✅ source_connection_config created")
 
 # COMMAND ----------
 
@@ -126,14 +126,7 @@ CREATE TABLE IF NOT EXISTS {CONFIG_TABLE} (
 USING DELTA
 COMMENT 'Central config and run-state table for the migration framework'
 """)
-print(f" table_migration_config created")
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC ALTER TABLE sandbox.migration_config.table_migration_config
-# MAGIC ADD COLUMN ddl_applied BOOLEAN 
-# MAGIC COMMENT 'True when DDL notebook has been run and Delta table pre-created';
+print(f"✅ table_migration_config created")
 
 # COMMAND ----------
 
@@ -159,8 +152,8 @@ conn_rows = [
     {
         'connection_name'  : 'pg_neon',
         'source_type'      : 'postgresql',
-        'connection_method': 'foreign_catalog',
-        'catalog_name'     : 'pg_neon',
+        'connection_method': 'jdbc',
+        'catalog_name'     : None,
         'jdbc_url_template': 'jdbc:postgresql://{host}:{port}/{database}?sslmode=require',
         'driver_class'     : 'org.postgresql.Driver',
         'secret_scope'     : 'pg_neon',
@@ -168,11 +161,11 @@ conn_rows = [
         'ssl_enabled'      : True,
         'extra_options'    : '{"fetchsize":"10000","queryTimeout":"0"}',
         'enabled'          : True,
-        'notes'            : 'Neon PostgreSQL free tier. foreign catalog pg_neon registered in UC.',
+        'notes'            : 'Neon PostgreSQL free tier. JDBC connection via pg_neon secret scope.',
     },
     {
         'connection_name'  : TARGET_CATALOG,
-        'source_type'      : 'adls',
+        'source_type'      : 'volume',
         'connection_method': 'volume',
         'catalog_name'     : None,
         'jdbc_url_template': None,
@@ -225,7 +218,7 @@ for row in conn_rows:
     print(f"  Inserted connection: {row['connection_name']}")
     conn_inserted += 1
 
-print(f"\n source_connection_config — Inserted: {conn_inserted} | Skipped: {conn_skipped}")
+print(f"\n✅ source_connection_config — Inserted: {conn_inserted} | Skipped: {conn_skipped}")
 
 # COMMAND ----------
 
@@ -433,7 +426,7 @@ rows = [
     # ══ TPCH_autoloader — UC Volume CSV ══════════════════════
     {
         'table_id'            : 'tpch_supplier_adls_001',
-        'source_type'         : 'adls',
+        'source_type'         : 'volume',
         'src_database'        : TARGET_CATALOG,
         'src_schema'          : TARGET_SCHEMA,
         'src_table'           : 'supplier',
@@ -456,7 +449,7 @@ rows = [
     },
     {
         'table_id'            : 'tpch_nation_adls_001',
-        'source_type'         : 'adls',
+        'source_type'         : 'volume',
         'src_database'        : TARGET_CATALOG,
         'src_schema'          : TARGET_SCHEMA,
         'src_table'           : 'nation',
@@ -481,7 +474,7 @@ rows = [
     # ══ VOLUME_copy_into — Volume Parquet ════════════════════
     {
         'table_id'            : 'volume_lineitem_copy_into_001',
-        'source_type'         : 'adls',
+        'source_type'         : 'volume',
         'src_database'        : TARGET_CATALOG,
         'src_schema'          : TARGET_SCHEMA,
         'src_table'           : 'lineitem',
@@ -591,7 +584,7 @@ for row in rows:
     print(f"  Inserted: {row['table_id']}")
     inserted += 1
 
-print(f"\n table_migration_config — Inserted: {inserted} | Skipped: {skipped}")
+print(f"\n✅ table_migration_config — Inserted: {inserted} | Skipped: {skipped}")
 
 # COMMAND ----------
 
@@ -681,3 +674,4 @@ Enable by process group when ready:
   SET enabled = true
   WHERE process_group = 'PG_NEON_jdbc';
 """)
+
