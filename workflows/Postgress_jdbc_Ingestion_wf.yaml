@@ -1,0 +1,40 @@
+resources:
+  jobs:
+    Postgress_jdbc_Ingestion_wf:
+      name: Postgress_jdbc_Ingestion_wf
+      tasks:
+        - task_key: init
+          notebook_task:
+            notebook_path: /Workspace/Users/tracy.anderson@lovelytics.com/migration_framework/notebooks/nb_02_workflow_init
+            source: WORKSPACE
+          environment_key: Default
+        - task_key: dispatch
+          depends_on:
+            - task_key: init
+          notebook_task:
+            notebook_path: /Workspace/Users/tracy.anderson@lovelytics.com/migration_framework/notebooks/nb_03_dispatcher
+            source: WORKSPACE
+          environment_key: Default
+        - task_key: summary
+          depends_on:
+            - task_key: dispatch
+          notebook_task:
+            notebook_path: /Workspace/Users/tracy.anderson@lovelytics.com/migration_framework/notebooks/nb_04_workflow_summary
+            source: WORKSPACE
+          environment_key: Default
+      queue:
+        enabled: true
+      parameters:
+        - name: admin_catalog
+          default: sandbox
+        - name: config_schema
+          default: migration_config
+        - name: max_workers
+          default: "8"
+        - name: process_group
+          default: Postgress_jdbc
+      environments:
+        - environment_key: Default
+          spec:
+            environment_version: "5"
+      performance_target: PERFORMANCE_OPTIMIZED
