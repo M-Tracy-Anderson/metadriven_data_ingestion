@@ -5,21 +5,21 @@ resources:
       tasks:
         - task_key: init
           notebook_task:
-            notebook_path: /Workspace/Users/tracy.anderson@lovelytics.com/migration_framework/notebooks/nb_02_workflow_init
+            notebook_path: /Workspace/Users/tracy.anderson@lovelytics.com/metadriven_data_ingestion/notebooks/nb_02_workflow_init
             source: WORKSPACE
           environment_key: Default
         - task_key: dispatch
           depends_on:
             - task_key: init
           notebook_task:
-            notebook_path: /Workspace/Users/tracy.anderson@lovelytics.com/migration_framework/notebooks/nb_03_dispatcher
+            notebook_path: /Workspace/Users/tracy.anderson@lovelytics.com/metadriven_data_ingestion/notebooks/nb_03_dispatcher
             source: WORKSPACE
           environment_key: Default
         - task_key: summary
           depends_on:
             - task_key: dispatch
           notebook_task:
-            notebook_path: /Workspace/Users/tracy.anderson@lovelytics.com/migration_framework/notebooks/nb_04_workflow_summary
+            notebook_path: /Workspace/Users/tracy.anderson@lovelytics.com/metadriven_data_ingestion/notebooks/nb_04_workflow_summary
             source: WORKSPACE
           environment_key: Default
       queue:
