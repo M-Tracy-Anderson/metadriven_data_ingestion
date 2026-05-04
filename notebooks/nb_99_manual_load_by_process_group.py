@@ -18,6 +18,19 @@
 
 # COMMAND ----------
 
+# MAGIC %sql
+# MAGIC UPDATE sandbox.migration_config.table_migration_config
+# MAGIC  SET
+# MAGIC      last_run_status = 'PENDING',
+# MAGIC      notes           = NULL,
+# MAGIC      last_loaded_value  = NULL,
+# MAGIC      last_sf_row_count  = 0,
+# MAGIC      last_delta_count  = 0,
+# MAGIC      last_run_at = NULL
+# MAGIC WHERE process_group = 'Postgress_jdbc'
+
+# COMMAND ----------
+
 dbutils.widgets.text("process_group",  "TPCH_POC")
 dbutils.widgets.text("admin_catalog",  "it")
 dbutils.widgets.text("config_schema",  "migration_config")
@@ -53,17 +66,33 @@ print(f"Notebook folder: {NOTEBOOK_BASE}")
 
 # COMMAND ----------
 
+# DBTITLE 1,Cell 4
 # ── Task 1: init ──────────────────────────────────────────────
 print("="*60)
 print("TASK 1 — nb_02_workflow_init")
 print("="*60)
 
-result_init = dbutils.notebook.run(
-    f"{NOTEBOOK_BASE}/nb_02_workflow_init",
-    timeout_seconds = 300,
-    arguments       = params
-)
-print(f"Init result: {result_init}")
+try:
+    result_init = dbutils.notebook.run(
+        f"{NOTEBOOK_BASE}/nb_02_workflow_init",
+        timeout_seconds = 300,
+        arguments       = params
+    )
+    print(f"Init result: {result_init}")
+except Exception as e:
+    # Child notebook failed — extract the detailed error message
+    error_msg = str(e)
+    print("\n" + "="*60)
+    print("ERROR: nb_02_workflow_init failed")
+    print("="*60)
+    print(error_msg)
+    print("\nCommon causes:")
+    print("  - Connection smoke test failed (JDBC/foreign catalog unreachable)")
+    print("  - Secret scope missing required secrets (host, port, user, password)")
+    print("  - Network/firewall blocking access to source database")
+    print("  - Validation errors in config table rows")
+    print("\nTo debug: Run nb_02_workflow_init directly with the same parameters.")
+    raise
 
 # COMMAND ----------
 
