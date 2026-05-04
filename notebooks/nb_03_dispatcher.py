@@ -46,7 +46,7 @@
 dbutils.widgets.text("process_group",  "TPCH_foreign_catalog")
 dbutils.widgets.text("admin_catalog",  "sandbox")
 dbutils.widgets.text("config_schema",  "migration_config")
-dbutils.widgets.text("max_workers",    "8")
+dbutils.widgets.text("max_workers",    "2")
 dbutils.widgets.text("adls_base_path", "abfss://migration@storageaccount.dfs.core.windows.net")
 dbutils.widgets.text("sf_jdbc_driver", "net.snowflake.client.jdbc.SnowflakeDriver")
 dbutils.widgets.text("notebook_base",   "")  # auto-resolved if blank
