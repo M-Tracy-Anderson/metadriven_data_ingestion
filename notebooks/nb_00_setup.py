@@ -51,10 +51,10 @@ print(f"Conn table     : {CONN_TABLE}")
 
 # ── Create schemas ────────────────────────────────────────────
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {ADMIN_CATALOG}.{CONFIG_SCHEMA}")
-print(f"✅ Schema {ADMIN_CATALOG}.{CONFIG_SCHEMA} ready")
+print(f" Schema {ADMIN_CATALOG}.{CONFIG_SCHEMA} ready")
 
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {TARGET_CATALOG}.{TARGET_SCHEMA}")
-print(f"✅ Schema {TARGET_CATALOG}.{TARGET_SCHEMA} ready")
+print(f" Schema {TARGET_CATALOG}.{TARGET_SCHEMA} ready")
 
 # COMMAND ----------
 
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS {CONN_TABLE} (
 USING DELTA
 COMMENT 'Central registry of source system connections for the migration framework'
 """)
-print(f"✅ source_connection_config created")
+print(f" source_connection_config created")
 
 # COMMAND ----------
 
@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS {CONFIG_TABLE} (
 USING DELTA
 COMMENT 'Central config and run-state table for the migration framework'
 """)
-print(f"✅ table_migration_config created")
+print(f" table_migration_config created")
 
 # COMMAND ----------
 
@@ -584,7 +584,7 @@ for row in rows:
     print(f"  Inserted: {row['table_id']}")
     inserted += 1
 
-print(f"\n✅ table_migration_config — Inserted: {inserted} | Skipped: {skipped}")
+print(f"\n table_migration_config — Inserted: {inserted} | Skipped: {skipped}")
 
 # COMMAND ----------
 
@@ -674,4 +674,3 @@ Enable by process group when ready:
   SET enabled = true
   WHERE process_group = 'PG_NEON_jdbc';
 """)
-

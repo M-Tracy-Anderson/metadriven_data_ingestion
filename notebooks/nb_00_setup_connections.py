@@ -26,7 +26,7 @@
 # COMMAND ----------
 
 # MAGIC %md
-# ## Section 1 — Helper functions
+# MAGIC # ## Section 1 — Helper functions
 
 # COMMAND ----------
 
@@ -108,9 +108,9 @@ def create_foreign_catalog(catalog_name, connection_name, database_name):
 # COMMAND ----------
 
 # MAGIC %md
-# ## Section 2 — Databricks samples catalog (built-in)
-# The `samples` catalog is available by default in all
-# Databricks workspaces. No setup needed — just verify.
+# MAGIC ## Section 2 — Databricks samples catalog (built-in)
+# MAGIC The `samples` catalog is available by default in all
+# MAGIC Databricks workspaces. No setup needed — just verify.
 
 # COMMAND ----------
 
@@ -124,37 +124,38 @@ except Exception as e:
 # COMMAND ----------
 
 # MAGIC %md
-# ## Section 3 — Neon PostgreSQL (pg_neon)
-# Free hosted PostgreSQL at neon.tech.
-# Connected via JDBC — no UC foreign catalog needed.
-# The dispatcher reads directly using the PostgreSQL JDBC driver
-# and credentials from the pg_neon secret scope.
-#
-# Before running this section:
-#   1. Sign up at neon.tech (free, no credit card)
-#   2. Create a project and note your connection string
-#   3. Fill in the credentials below
-#   4. Create supplier_pg table in Neon SQL Editor:
-#
-#   CREATE TABLE supplier_pg (
-#       s_suppkey   INTEGER PRIMARY KEY,
-#       s_name      VARCHAR(25),
-#       s_address   VARCHAR(40),
-#       s_nationkey INTEGER,
-#       s_phone     VARCHAR(15),
-#       s_acctbal   DECIMAL(15,2),
-#       s_comment   VARCHAR(101),
-#       updated_at  TIMESTAMP DEFAULT NOW()
-#   );
-#   INSERT INTO supplier_pg VALUES
-#   (1,'Supplier#000000001','0ywSH7t7rPhQkFST6gp',17,'27-918-335-1736',5755.94,'each slyly above',NOW()),
-#   (2,'Supplier#000000002','89eJ5ksX3ImxJQBvxObC',5,'15-679-861-2259',4032.68,'furiously ironic',NOW()),
-#   (3,'Supplier#000000003','q1,G3Pj6OjIuUYfUoH18',1,'11-383-516-1199',4192.40,'blithely express',NOW()),
-#   (4,'Supplier#000000004','Bk7ah4CK8SYQTepEmvMk',15,'25-843-787-7479',4641.08,'final accounts',NOW()),
-#   (5,'Supplier#000000005','Gcdm2rJRzl5qlTVzc',11,'21-151-690-3663',-283.84,'pending requests',NOW());
-#
-# Connection string format (from Neon console → Connect):
-#   postgresql://{user}:{password}@{host}/{database}?sslmode=require
+# MAGIC ## Section 3 — Neon PostgreSQL (pg_neon)
+# MAGIC Free hosted PostgreSQL at neon.tech.
+# MAGIC Connected via JDBC — no UC foreign catalog needed.
+# MAGIC The dispatcher reads directly using the PostgreSQL JDBC driver
+# MAGIC and credentials from the pg_neon secret scope.
+# MAGIC
+# MAGIC Before running this section:
+# MAGIC   - 1. Sign up at neon.tech (free, no credit card)
+# MAGIC   - 2. Create a project and note your connection string
+# MAGIC   - 3. Fill in the credentials below
+# MAGIC   - 4. Create supplier_pg table in Neon SQL Editor:
+# MAGIC
+# MAGIC    CREATE TABLE supplier_pg (
+# MAGIC   -     s_suppkey   INTEGER PRIMARY KEY,
+# MAGIC   -     s_name      VARCHAR(25),
+# MAGIC   -     s_address   VARCHAR(40),
+# MAGIC   -     s_nationkey INTEGER,
+# MAGIC   -     s_phone     VARCHAR(15),
+# MAGIC   -     s_acctbal   DECIMAL(15,2),
+# MAGIC   -     s_comment   VARCHAR(101),
+# MAGIC   -     updated_at  TIMESTAMP DEFAULT NOW()
+# MAGIC    );
+# MAGIC    
+# MAGIC    INSERT INTO supplier_pg VALUES
+# MAGIC    - (1,'Supplier#000000001','0ywSH7t7rPhQkFST6gp',17,'27-918-335-1736',5755.94,'each slyly above',NOW()),
+# MAGIC    - (2,'Supplier#000000002','89eJ5ksX3ImxJQBvxObC',5,'15-679-861-2259',4032.68,'furiously ironic',NOW()),
+# MAGIC    - (3,'Supplier#000000003','q1,G3Pj6OjIuUYfUoH18',1,'11-383-516-1199',4192.40,'blithely express',NOW()),
+# MAGIC    - (4,'Supplier#000000004','Bk7ah4CK8SYQTepEmvMk',15,'25-843-787-7479',4641.08,'final accounts',NOW()),
+# MAGIC    - (5,'Supplier#000000005','Gcdm2rJRzl5qlTVzc',11,'21-151-690-3663',-283.84,'pending requests',NOW());
+# MAGIC
+# MAGIC  Connection string format (from Neon console → Connect):
+# MAGIC    postgresql://{user}:{password}@{host}/{database}?sslmode=require
 
 # COMMAND ----------
 
@@ -203,46 +204,46 @@ else:
         # Test 1 — basic connectivity
         df = spark.read.format("jdbc")             .option("url",      jdbc_url)             .option("dbtable",  "(SELECT 1 AS test) AS t")             .option("user",     user)             .option("password", password)             .option("driver",   "org.postgresql.Driver")             .load()
         df.show()
-        print("  ✅ JDBC connection successful")
+        print("   JDBC connection successful")
 
         # Test 2 — read supplier_pg table
         count = spark.read.format("jdbc")             .option("url",      jdbc_url)             .option("dbtable",  "public.supplier_pg")             .option("user",     user)             .option("password", password)             .option("driver",   "org.postgresql.Driver")             .load().count()
-        print(f"  ✅ pg_neon.public.supplier_pg : {count:,} rows — OK")
+        print(f"   pg_neon.public.supplier_pg : {count:,} rows — OK")
 
     except Exception as e:
-        print(f"  ❌ JDBC connection failed: {str(e)[:200]}")
+        print(f"   JDBC connection failed: {str(e)[:200]}")
         print("  Check: host, port, user, password in secret scope")
         print("  Check: PostgreSQL JDBC driver installed on cluster")
 
 # COMMAND ----------
 
 # MAGIC %md
-# ## Section 4 — Additional source systems
-# Add new sections below following the same pattern for each
-# additional source system:
-#   1. Fill in credentials
-#   2. create_scope() + put_secret() for each key
-#   3. CREATE CONNECTION in UC
-#   4. CREATE FOREIGN CATALOG (for UC-supported sources)
-#      OR use JDBC directly via secret scope (for Oracle etc.)
-#
-# Source type reference:
-#   postgresql  → CREATE CONNECTION TYPE postgresql
-#   mysql       → CREATE CONNECTION TYPE mysql
-#   sqlserver   → CREATE CONNECTION TYPE sqlserver
-#   snowflake   → CREATE CONNECTION TYPE snowflake
-#   redshift    → CREATE CONNECTION TYPE redshift
-#   oracle      → JDBC only — no UC foreign catalog support
-#
-# Secret scope key convention:
-#   host, port, user, password, database
-#   Snowflake also needs: account, warehouse
-#   Oracle also needs:    sid (instead of database)
+# MAGIC ## Section 4 — Additional source systems
+# MAGIC Add new sections below following the same pattern for each
+# MAGIC additional source system:
+# MAGIC  - 1. Fill in credentials
+# MAGIC  - 2. create_scope() + put_secret() for each key
+# MAGIC  - 3. CREATE CONNECTION in UC
+# MAGIC  - 4. CREATE FOREIGN CATALOG (for UC-supported sources)
+# MAGIC  -    OR use JDBC directly via secret scope (for Oracle etc.)
+# MAGIC
+# MAGIC Source type reference:
+# MAGIC  -postgresql  → CREATE CONNECTION TYPE postgresql
+# MAGIC  - mysql       → CREATE CONNECTION TYPE mysql
+# MAGIC  - sqlserver   → CREATE CONNECTION TYPE sqlserver
+# MAGIC  - snowflake   → CREATE CONNECTION TYPE snowflake
+# MAGIC  - redshift    → CREATE CONNECTION TYPE redshift
+# MAGIC  - oracle      → JDBC only — no UC foreign catalog support
+# MAGIC
+# MAGIC Secret scope key convention:
+# MAGIC  - host, port, user, password, database
+# MAGIC  - Snowflake also needs: account, warehouse
+# MAGIC  - Oracle also needs:    sid (instead of database)
 
 # COMMAND ----------
 
 # MAGIC %md
-# ## Section 5 — Verify all connections
+# MAGIC # ## Section 5 — Verify all connections
 
 # COMMAND ----------
 
@@ -264,4 +265,3 @@ for label, sql in checks:
         print(f"  {label:<45} FAILED — {str(e)[:80]}")
 
 print("="*60)
-
